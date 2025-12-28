@@ -52,9 +52,19 @@ class IndustrialRobotNode(Node):
                 )
                 self.get_logger().info(f"CAN bus initialized on {self._can_interface} at {self._can_bitrate} bps")
             except (OSError, can.CanError, ValueError) as e:
-                self.get_logger().warn(f"CAN hardware not available ({e}), falling back to simulation mode")
-                self._can_simulation_mode = True
-                self._can_bus = None
+                self.get_logger().warn(f"CAN hardware {self._can_interface} not available ({e}), trying vcan0...")
+                # Try virtual CAN interface as fallback
+                try:
+                    self._can_bus = can.interface.Bus(
+                        channel='vcan0',
+                        bustype='socketcan'
+                    )
+                    self._can_interface = 'vcan0'
+                    self.get_logger().info(f"CAN bus initialized on vcan0 (virtual interface)")
+                except (OSError, can.CanError, ValueError) as e2:
+                    self.get_logger().warn(f"vcan0 also not available ({e2}), falling back to data simulation mode")
+                    self._can_simulation_mode = True
+                    self._can_bus = None
         else:
             self.get_logger().warn("python-can library not installed, using simulation mode")
             self._can_simulation_mode = True

@@ -884,7 +884,7 @@ export default function Dashboard() {
                     <TelemetryChart 
                       data={dataHistory} 
                       series={JOINTS.map(j => ({ key: `${j.id}_pos`, color: j.color, label: j.name.split(' ')[0] }))}
-                      range={[-180, 180]} 
+                      range={[-1, 5]} 
                       unit=""
                     />
                   </Card>
