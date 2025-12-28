@@ -125,7 +125,15 @@ const useRosInterfaces = () => {
         const res = await fetch(API_URL);
         if (res.ok) {
           const data = await res.json();
+          // Debug: log received data
+          console.log("ROS2 Interfaces received:", {
+            services: data.services?.length || 0,
+            topics: data.topics?.length || 0,
+            actions: data.actions?.length || 0
+          });
           setInterfaces(data);
+        } else {
+          console.error("Failed to fetch ROS2 interfaces: HTTP", res.status);
         }
       } catch (e) {
         console.error("Failed to fetch ROS2 interfaces:", e);
@@ -724,35 +732,7 @@ const RosInterfacePanel = () => {
   
   return (
     <div className="h-full flex flex-col p-3 overflow-y-auto custom-scrollbar bg-black">
-      {/* Services Section */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[9px] text-[#6CA4D4] uppercase tracking-[0.2em] font-bold">Services</span>
-          <span className="text-[9px] text-[#C2C9CD]/50 font-mono">({autoInterfaces?.services?.length || 0})</span>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          {autoInterfaces?.services?.map((iface, idx) => (
-            <div key={idx} className="p-1.5 border border-[#2E5276] rounded-sm bg-[#162a3d]/30 flex justify-between items-center hover:bg-[#162a3d]/60 hover:border-[#6CA4D4]/30 transition-all group">
-              <div className="flex-1 min-w-0">
-                <div className="text-[11px] font-mono text-[#C2C9CD] truncate group-hover:text-white" title={iface.name}>
-                  {iface.name}
-                </div>
-                <div className="text-[9px] text-[#2E5276] font-mono truncate mt-0.5">{iface.type}</div>
-              </div>
-              {iface.ui_hint === 'toggle' ? (
-                <button className="bg-black hover:bg-[#A4B43C] text-[#A4B43C] hover:text-white px-2 py-0.5 rounded-sm text-[9px] min-w-[50px] border border-[#A4B43C] hover:border-transparent transition-all uppercase font-bold ml-2">Switch</button>
-              ) : iface.ui_hint === 'button' ? (
-                <button className="bg-black hover:bg-[#6CA4D4] text-[#6CA4D4] hover:text-white px-2 py-0.5 rounded-sm text-[9px] min-w-[50px] border border-[#6CA4D4] hover:border-transparent transition-all uppercase font-bold ml-2">Call</button>
-              ) : (
-                <span className="text-[9px] text-[#C2C9CD]/30 px-2 font-mono ml-2">FORM</span>
-              )}
-            </div>
-          ))}
-          {(!autoInterfaces?.services || autoInterfaces.services.length === 0) && (
-            <div className="text-center text-[10px] text-[#C2C9CD]/30 py-4 italic">No services found in ROS2 network</div>
-          )}
-        </div>
-      </div>
+
 
       {/* Topics Section */}
       <div className="mb-4">
@@ -798,6 +778,36 @@ const RosInterfacePanel = () => {
           </div>
         </div>
       )}
+
+      {/* Services Section */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[9px] text-[#6CA4D4] uppercase tracking-[0.2em] font-bold">Services</span>
+          <span className="text-[9px] text-[#C2C9CD]/50 font-mono">({autoInterfaces?.services?.length || 0})</span>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          {autoInterfaces?.services?.map((iface, idx) => (
+            <div key={idx} className="p-1.5 border border-[#2E5276] rounded-sm bg-[#162a3d]/30 flex justify-between items-center hover:bg-[#162a3d]/60 hover:border-[#6CA4D4]/30 transition-all group">
+              <div className="flex-1 min-w-0">
+                <div className="text-[11px] font-mono text-[#C2C9CD] truncate group-hover:text-white" title={iface.name}>
+                  {iface.name}
+                </div>
+                <div className="text-[9px] text-[#2E5276] font-mono truncate mt-0.5">{iface.type}</div>
+              </div>
+              {iface.ui_hint === 'toggle' ? (
+                <button className="bg-black hover:bg-[#A4B43C] text-[#A4B43C] hover:text-white px-2 py-0.5 rounded-sm text-[9px] min-w-[50px] border border-[#A4B43C] hover:border-transparent transition-all uppercase font-bold ml-2">Switch</button>
+              ) : iface.ui_hint === 'button' ? (
+                <button className="bg-black hover:bg-[#6CA4D4] text-[#6CA4D4] hover:text-white px-2 py-0.5 rounded-sm text-[9px] min-w-[50px] border border-[#6CA4D4] hover:border-transparent transition-all uppercase font-bold ml-2">Call</button>
+              ) : (
+                <span className="text-[9px] text-[#C2C9CD]/30 px-2 font-mono ml-2">FORM</span>
+              )}
+            </div>
+          ))}
+          {(!autoInterfaces?.services || autoInterfaces.services.length === 0) && (
+            <div className="text-center text-[10px] text-[#C2C9CD]/30 py-4 italic">No services found in ROS2 network</div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

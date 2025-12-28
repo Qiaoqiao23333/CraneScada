@@ -1,5 +1,6 @@
 import rclpy
 from rclpy.node import Node
+from rclpy.action.graph import get_action_names_and_types
 from sensor_msgs.msg import JointState
 from rcl_interfaces.msg import Log
 import threading
@@ -173,17 +174,23 @@ class IndustrialRobotNode(Node):
             except Exception as e:
                 self.get_logger().warn(f"Failed to get topics: {e}")
 
-            # Discover Actions (if available)
+            # Discover Actions
+            # Use ROS2's action graph API to directly get all actions
             actions = []
             try:
-                # Note: get_action_names_and_types() might not be available in all ROS2 versions
-                if hasattr(self, 'get_action_names_and_types'):
-                    action_list = self.get_action_names_and_types()
-                    self.get_logger().debug(f"Found {len(action_list)} actions in ROS2 network")
-                    for name, types in action_list:
-                        actions.append({"name": name, "types": types})
+                action_list = get_action_names_and_types(self)
+                self.get_logger().info(f"Found {len(action_list)} actions in ROS2 network")
+                
+                for name, types in action_list:
+                    actions.append({
+                        "name": name,
+                        "types": types  # types is already a list
+                    })
+                
+                if len(actions) > 0:
+                    self.get_logger().debug(f"Action names: {[a['name'] for a in actions]}")
             except Exception as e:
-                self.get_logger().debug(f"Actions discovery not available: {e}")
+                self.get_logger().error(f"Failed to discover actions: {e}", exc_info=True)
 
             with self._lock:
                 self._state["network_topology"]["services"] = services
