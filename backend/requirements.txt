@@ -4,3 +4,4 @@ websockets
 pydantic
 netifaces
 psutil
+python-can
