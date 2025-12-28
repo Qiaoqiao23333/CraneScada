@@ -152,17 +152,50 @@ class IndustrialRobotNode(Node):
 
     def _introspection_loop(self):
         # Semantic Analysis of ROS Graph
-        services = []
-        for name, types in self.get_service_names_and_types():
-            ui_hint = "form"
-            if 'SetBool' in types[0]: ui_hint = "toggle"
-            elif 'Trigger' in types[0]: ui_hint = "button"
-            services.append({"name": name, "type": types[0], "ui_hint": ui_hint})
+        try:
+            # Discover Services
+            services = []
+            service_list = self.get_service_names_and_types()
+            self.get_logger().debug(f"Found {len(service_list)} services in ROS2 network")
+            for name, types in service_list:
+                ui_hint = "form"
+                if 'SetBool' in types[0]: ui_hint = "toggle"
+                elif 'Trigger' in types[0]: ui_hint = "button"
+                services.append({"name": name, "type": types[0], "ui_hint": ui_hint})
 
-        with self._lock:
-            self._state["network_topology"]["services"] = services
-            self._state["system_stats"]["cpu"] = psutil.cpu_percent()
-            self._state["timestamp"] = time.time() * 1000
+            # Discover Topics
+            topics = []
+            try:
+                topic_list = self.get_topic_names_and_types()
+                self.get_logger().debug(f"Found {len(topic_list)} topics in ROS2 network")
+                for name, types in topic_list:
+                    topics.append({"name": name, "types": types})
+            except Exception as e:
+                self.get_logger().warn(f"Failed to get topics: {e}")
+
+            # Discover Actions (if available)
+            actions = []
+            try:
+                # Note: get_action_names_and_types() might not be available in all ROS2 versions
+                if hasattr(self, 'get_action_names_and_types'):
+                    action_list = self.get_action_names_and_types()
+                    self.get_logger().debug(f"Found {len(action_list)} actions in ROS2 network")
+                    for name, types in action_list:
+                        actions.append({"name": name, "types": types})
+            except Exception as e:
+                self.get_logger().debug(f"Actions discovery not available: {e}")
+
+            with self._lock:
+                self._state["network_topology"]["services"] = services
+                self._state["network_topology"]["topics"] = topics
+                self._state["network_topology"]["actions"] = actions
+                self._state["system_stats"]["cpu"] = psutil.cpu_percent()
+                self._state["timestamp"] = time.time() * 1000
+                
+            if len(services) > 0 or len(topics) > 0:
+                self.get_logger().info(f"ROS2 Discovery: {len(services)} services, {len(topics)} topics, {len(actions)} actions")
+        except Exception as e:
+            self.get_logger().error(f"Error in introspection loop: {e}")
 
     def get_snapshot(self):
         with self._lock:

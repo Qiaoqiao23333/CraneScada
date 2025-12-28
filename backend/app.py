@@ -43,8 +43,16 @@ async def startup():
 
 @app.get("/api/ros/interfaces")
 async def get_interfaces():
-    if not ros_node: return {}
-    return ros_node.get_snapshot()["network_topology"]
+    if not ros_node: 
+        return {"services": [], "topics": [], "actions": []}
+    snapshot = ros_node.get_snapshot()
+    network_topology = snapshot.get("network_topology", {"services": [], "topics": [], "actions": []})
+    # Ensure all keys exist
+    return {
+        "services": network_topology.get("services", []),
+        "topics": network_topology.get("topics", []),
+        "actions": network_topology.get("actions", [])
+    }
 
 class ControlCmd(BaseModel):
     joint_id: str
