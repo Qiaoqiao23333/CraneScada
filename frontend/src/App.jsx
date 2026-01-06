@@ -489,7 +489,7 @@ const CanMonitor = ({ canState = {} }) => {
               {Array.isArray(row.data) ? row.data.map(b => toHex(b)).join(' ') : 'ERR'}
             </div>
             <div className="text-right font-mono text-[#A4B43C]">
-              {row.avgDt > 0 ? row.avgDt.toFixed(1) : '-'}
+              {row.avg_dt > 0 ? row.avg_dt.toFixed(1) : '-'}
             </div>
             <div className="text-right text-[#C2C9CD]/50">
               {row.count}

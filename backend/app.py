@@ -1,6 +1,7 @@
 import uvicorn
 import threading
 import asyncio
+import os
 import rclpy
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +31,11 @@ def ros_spin_wrapper(node):
 @app.on_event("startup")
 async def startup():
     global ros_node
+    # Set ROS_DOMAIN_ID from environment or use default
+    ros_domain_id = os.getenv('ROS_DOMAIN_ID', '0')
+    os.environ['ROS_DOMAIN_ID'] = ros_domain_id
+    print(f"Initializing ROS2 with ROS_DOMAIN_ID={ros_domain_id}")
+    
     try:
         if not rclpy.ok():
             rclpy.init()
