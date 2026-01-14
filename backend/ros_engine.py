@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action.graph import get_action_names_and_types
-from sensor_msgs.msg import JointState
+from std_msgs.msg import Float64
 from rcl_interfaces.msg import Log
 import threading
 import time
@@ -72,7 +72,24 @@ class IndustrialRobotNode(Node):
             self._can_bus = None
 
         # --- Subscribers ---
-        self.create_subscription(JointState, '/joint_states', self._joint_callback, 10)
+        # Position topics
+        self.get_logger().info("Subscribing to position topics:")
+        self.create_subscription(Float64, '/hoist/crane_position', self._hoist_position_callback, 10)
+        self.get_logger().info("  - /hoist/crane_position")
+        self.create_subscription(Float64, '/trolley/crane_position', self._trolley_position_callback, 10)
+        self.get_logger().info("  - /trolley/crane_position")
+        self.create_subscription(Float64, '/slewing/crane_position', self._slewing_position_callback, 10)
+        self.get_logger().info("  - /slewing/crane_position")
+        
+        # Velocity topics
+        self.get_logger().info("Subscribing to velocity topics:")
+        self.create_subscription(Float64, '/hoist/crane_velocity', self._hoist_velocity_callback, 10)
+        self.get_logger().info("  - /hoist/crane_velocity")
+        self.create_subscription(Float64, '/trolley/crane_velocity', self._trolley_velocity_callback, 10)
+        self.get_logger().info("  - /trolley/crane_velocity")
+        self.create_subscription(Float64, '/slewing/crane_velocity', self._slewing_velocity_callback, 10)
+        self.get_logger().info("  - /slewing/crane_velocity")
+        
         self.create_subscription(Log, '/rosout', self._log_callback, 10)
 
         # --- Timers ---
@@ -81,14 +98,35 @@ class IndustrialRobotNode(Node):
 
         self.get_logger().info("CraneSCADA Bridge Initialized")
 
-    def _joint_callback(self, msg):
-        # Map ROS joint array to named dictionary
+    def _hoist_position_callback(self, msg):
+        """Callback for /hoist/crane_position topic"""
         with self._lock:
-            # Simplified mapping logic for demo with safety checks
-            if len(msg.position) >= 3 and len(msg.velocity) >= 3 and len(msg.effort) >= 3:
-                self._state["joints"]["slewing"] = {"pos": msg.position[0], "vel": msg.velocity[0], "cur": msg.effort[0]}
-                self._state["joints"]["trolley"] = {"pos": msg.position[1], "vel": msg.velocity[1], "cur": msg.effort[1]}
-                self._state["joints"]["hook"]    = {"pos": msg.position[2], "vel": msg.velocity[2], "cur": msg.effort[2]}
+            self._state["joints"]["hook"]["pos"] = msg.data
+    
+    def _trolley_position_callback(self, msg):
+        """Callback for /trolley/crane_position topic"""
+        with self._lock:
+            self._state["joints"]["trolley"]["pos"] = msg.data
+    
+    def _slewing_position_callback(self, msg):
+        """Callback for /slewing/crane_position topic"""
+        with self._lock:
+            self._state["joints"]["slewing"]["pos"] = msg.data
+    
+    def _hoist_velocity_callback(self, msg):
+        """Callback for /hoist/crane_velocity topic"""
+        with self._lock:
+            self._state["joints"]["hook"]["vel"] = msg.data
+    
+    def _trolley_velocity_callback(self, msg):
+        """Callback for /trolley/crane_velocity topic"""
+        with self._lock:
+            self._state["joints"]["trolley"]["vel"] = msg.data
+    
+    def _slewing_velocity_callback(self, msg):
+        """Callback for /slewing/crane_velocity topic"""
+        with self._lock:
+            self._state["joints"]["slewing"]["vel"] = msg.data
 
     def _log_callback(self, msg):
         entry = {

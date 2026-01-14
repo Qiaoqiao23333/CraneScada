@@ -110,7 +110,7 @@ export CAN_BITRATE=500000
 cd backend
 source venv/bin/activate
 source /opt/ros/humble/setup.bash  # Source ROS2
-(export ROS_DOMAIN_ID=8)
+export ROS_DOMAIN_ID=8
 python app.py
 ```
 

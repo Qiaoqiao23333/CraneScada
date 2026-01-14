@@ -369,20 +369,68 @@ const Card = ({ title, icon: Icon, children, className = "", headerRight = null 
 );
 
 const TelemetryChart = ({ data, series, range, unit }) => {
+  // Calculate dynamic range from actual data if range is not provided or data exists
+  const calculateDynamicRange = () => {
+    if (!data || data.length === 0) {
+      return range || [-1, 1]; // Fallback to provided range or default
+    }
+
+    // Collect all values from all series
+    const allValues = [];
+    series.forEach(s => {
+      data.forEach(d => {
+        const val = d[s.key];
+        if (val !== undefined && val !== null && !isNaN(val)) {
+          allValues.push(val);
+        }
+      });
+    });
+
+    if (allValues.length === 0) {
+      return range || [-1, 1]; // Fallback if no valid values
+    }
+
+    const min = Math.min(...allValues);
+    const max = Math.max(...allValues);
+    
+    // Add 10% padding on each side, or minimum padding if range is too small
+    const padding = Math.max((max - min) * 0.1, Math.abs(max - min) < 0.01 ? 0.1 : 0);
+    const dynamicMin = min - padding;
+    const dynamicMax = max + padding;
+    
+    // If range is too small, center around zero
+    if (Math.abs(dynamicMax - dynamicMin) < 0.01) {
+      return [-1, 1];
+    }
+    
+    return [dynamicMin, dynamicMax];
+  };
+
+  const dynamicRange = calculateDynamicRange();
+  // Use provided range if explicitly provided (not null), otherwise use dynamic range
+  const effectiveRange = (range !== null && range !== undefined) ? range : dynamicRange;
+
   const getPoints = (key) => {
+    if (!data || data.length === 0) {
+      return '';
+    }
+    
     return data.map((d, i) => {
-      const x = (i / (MAX_CHART_POINTS - 1)) * 100;
-      const val = d[key] || 0;
-      const clampedVal = Math.max(range[0], Math.min(range[1], val));
-      const normalizedY = (clampedVal - range[0]) / (range[1] - range[0]);
+      const x = data.length > 1 ? (i / (data.length - 1)) * 100 : 50;
+      const val = d[key];
+      if (val === undefined || val === null || isNaN(val)) {
+        return null;
+      }
+      const clampedVal = Math.max(effectiveRange[0], Math.min(effectiveRange[1], val));
+      const normalizedY = (clampedVal - effectiveRange[0]) / (effectiveRange[1] - effectiveRange[0]);
       const y = 100 - (normalizedY * 100);
       return `${x},${y}`;
-    }).join(' ');
+    }).filter(p => p !== null).join(' ');
   };
 
   const latestValues = series.map(s => {
-    const val = data.length > 0 ? data[data.length - 1][s.key] : 0;
-    return { ...s, val: val.toFixed(2) };
+    const val = data && data.length > 0 ? (data[data.length - 1][s.key] || 0) : 0;
+    return { ...s, val: typeof val === 'number' ? val.toFixed(2) : '0.00' };
   });
 
   return (
@@ -408,7 +456,12 @@ const TelemetryChart = ({ data, series, range, unit }) => {
           </div>
         ))}
       </div>
-      <div className="flex-1 w-full h-full pt-2 pb-2 px-2">
+      <div className="flex-1 w-full h-full pt-2 pb-2 px-2 relative">
+        {(!data || data.length === 0) && (
+          <div className="absolute inset-0 flex items-center justify-center text-[#C2C9CD]/50 text-xs">
+            No data available
+          </div>
+        )}
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
           {/* High-tech Grid Horizontal */}
           <line x1="0" y1="25" x2="100" y2="25" stroke="#2E5276" strokeWidth="0.2" strokeDasharray="1 1" vectorEffect="non-scaling-stroke" />
@@ -420,26 +473,32 @@ const TelemetryChart = ({ data, series, range, unit }) => {
           <line x1="50" y1="0" x2="50" y2="100" stroke="#2E5276" strokeWidth="0.2" strokeDasharray="1 1" vectorEffect="non-scaling-stroke" />
           <line x1="75" y1="0" x2="75" y2="100" stroke="#2E5276" strokeWidth="0.2" strokeDasharray="1 1" vectorEffect="non-scaling-stroke" />
           
-          {series.map(s => (
-            <React.Fragment key={s.key}>
-                {/* Area fill */}
-                <polyline
-                    fill={`url(#grad-${s.key})`}
-                    stroke="none"
-                    points={`${getPoints(s.key)} 100,100 0,100`}
-                    vectorEffect="non-scaling-stroke"
-                />
-                {/* Line stroke */}
-                <polyline
-                fill="none"
-                stroke={s.color}
-                strokeWidth="1.5"
-                points={getPoints(s.key)}
-                vectorEffect="non-scaling-stroke"
-                className="drop-shadow-[0_0_4px_rgba(0,0,0,0.5)]"
-                />
-            </React.Fragment>
-          ))}
+          {series.map(s => {
+            const points = getPoints(s.key);
+            if (!points || points.trim() === '') {
+              return null; // Don't render if no valid points
+            }
+            return (
+              <React.Fragment key={s.key}>
+                  {/* Area fill */}
+                  <polyline
+                      fill={`url(#grad-${s.key})`}
+                      stroke="none"
+                      points={`${points} 100,100 0,100`}
+                      vectorEffect="non-scaling-stroke"
+                  />
+                  {/* Line stroke */}
+                  <polyline
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth="1.5"
+                  points={points}
+                  vectorEffect="non-scaling-stroke"
+                  className="drop-shadow-[0_0_4px_rgba(0,0,0,0.5)]"
+                  />
+              </React.Fragment>
+            );
+          })}
         </svg>
       </div>
     </div>
@@ -967,7 +1026,7 @@ export default function Dashboard() {
                     <TelemetryChart 
                       data={dataHistory} 
                       series={JOINTS.map(j => ({ key: `${j.id}_pos`, color: j.color, label: j.name.split(' ')[0] }))}
-                      range={[-1, 5]} 
+                      range={null}
                       unit=""
                     />
                   </Card>
@@ -975,7 +1034,7 @@ export default function Dashboard() {
                     <TelemetryChart 
                       data={dataHistory} 
                       series={JOINTS.map(j => ({ key: `${j.id}_vel`, color: j.color, label: j.name.split(' ')[0] }))}
-                      range={[-20, 20]} 
+                      range={null}
                       unit="u/s"
                     />
                   </Card>
