@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action.graph import get_action_names_and_types
-from std_msgs.msg import Float64
+from std_msgs.msg import Float32
 from rcl_interfaces.msg import Log
 import threading
 import time
@@ -74,20 +74,20 @@ class IndustrialRobotNode(Node):
         # --- Subscribers ---
         # Position topics
         self.get_logger().info("Subscribing to position topics:")
-        self.create_subscription(Float64, '/hoist/crane_position', self._hoist_position_callback, 10)
+        self.create_subscription(Float32, '/hoist/crane_position', self._hoist_position_callback, 10)
         self.get_logger().info("  - /hoist/crane_position")
-        self.create_subscription(Float64, '/trolley/crane_position', self._trolley_position_callback, 10)
+        self.create_subscription(Float32, '/trolley/crane_position', self._trolley_position_callback, 10)
         self.get_logger().info("  - /trolley/crane_position")
-        self.create_subscription(Float64, '/slewing/crane_position', self._slewing_position_callback, 10)
+        self.create_subscription(Float32, '/slewing/crane_position', self._slewing_position_callback, 10)
         self.get_logger().info("  - /slewing/crane_position")
         
         # Velocity topics
         self.get_logger().info("Subscribing to velocity topics:")
-        self.create_subscription(Float64, '/hoist/crane_velocity', self._hoist_velocity_callback, 10)
+        self.create_subscription(Float32, '/hoist/crane_velocity', self._hoist_velocity_callback, 10)
         self.get_logger().info("  - /hoist/crane_velocity")
-        self.create_subscription(Float64, '/trolley/crane_velocity', self._trolley_velocity_callback, 10)
+        self.create_subscription(Float32, '/trolley/crane_velocity', self._trolley_velocity_callback, 10)
         self.get_logger().info("  - /trolley/crane_velocity")
-        self.create_subscription(Float64, '/slewing/crane_velocity', self._slewing_velocity_callback, 10)
+        self.create_subscription(Float32, '/slewing/crane_velocity', self._slewing_velocity_callback, 10)
         self.get_logger().info("  - /slewing/crane_velocity")
         
         self.create_subscription(Log, '/rosout', self._log_callback, 10)
