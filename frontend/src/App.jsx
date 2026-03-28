@@ -163,6 +163,117 @@ const sendCommand = async (jointId, command, value = 0.0) => {
   }
 };
 
+const sendActionGoal = async (payload) => {
+  const res = await fetch(`${CONTROL_URL}/action-goal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.detail || "Action goal failed");
+  }
+  return data;
+};
+
+const sendServiceCall = async (payload) => {
+  const res = await fetch(`${CONTROL_URL}/service-call`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.detail || "Service call failed");
+  }
+  return data;
+};
+
+const sendTopicPublish = async (payload) => {
+  const res = await fetch(`${CONTROL_URL}/topic-publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.detail || "Topic publish failed");
+  }
+  return data;
+};
+
+const parseCsvList = (value) => value
+  .split(',')
+  .map(item => item.trim())
+  .filter(Boolean);
+
+const parseNumberCsvList = (value) => {
+  const entries = parseCsvList(value);
+  const numbers = entries.map(Number);
+  if (numbers.some(num => Number.isNaN(num))) {
+    throw new Error("Use comma-separated numeric values, e.g. 90.0, 0.1, 0.1");
+  }
+  return numbers;
+};
+
+const getActionType = (action) => Array.isArray(action.types) ? action.types[0] : action.types;
+
+const isFollowJointTrajectoryAction = (action) => {
+  const actionType = getActionType(action) || '';
+  return actionType.includes('control_msgs/action/FollowJointTrajectory');
+};
+
+const createActionDraft = (action) => ({
+  jointNames: action.name?.includes('/forward_position_controller/')
+    ? 'slewing_joint, trolley_joint, hook_joint'
+    : '',
+  positions: '',
+  timeFromStartSec: '2',
+  goalYaml: '',
+  feedback: true
+});
+
+const createServiceDraft = (service) => ({
+  boolValue: true,
+  requestYaml: service.ui_hint === 'form' ? '' : ''
+});
+
+const createTopicDraft = (topic) => ({
+  floatValue: topic.name?.includes('target_velocity') ? '10.0' : '0.0',
+  messageYaml: '',
+  once: true
+});
+
+const JOINT_LIMITS = {
+  slewing_joint: { min: -1.57, max: 1.57 },
+  trolley_joint: { min: -1, max: 1 },
+  hook_joint: { min: -2, max: 2 }
+};
+
+const validateJointRanges = (jointNames, positions) => {
+  jointNames.forEach((jointName, index) => {
+    const limits = JOINT_LIMITS[jointName];
+    if (!limits) return;
+
+    const value = positions[index];
+    if (value < limits.min || value > limits.max) {
+      throw new Error(
+        `${jointName} must be between ${limits.min} and ${limits.max}`
+      );
+    }
+  });
+};
+
+const getTopicType = (topic) => Array.isArray(topic.types) ? topic.types[0] : topic.types;
+
+const isFloat32Topic = (topic) => {
+  const topicType = getTopicType(topic) || '';
+  return topicType.includes('std_msgs/msg/Float32');
+};
+
 const sendEStop = async () => {
   try {
     await fetch(`${CONTROL_URL}/estop`, { method: 'POST' });
@@ -786,87 +897,533 @@ const SystemResources = ({ motorTemp, driveLoad, systemStats }) => {
   );
 };
 
-const RosInterfacePanel = () => {
-  const autoInterfaces = useRosInterfaces();
+const RosInterfacePanel = ({
+  showTopics = true,
+  showActions = true,
+  showServices = true,
+  autoInterfacesData
+}) => {
+  const discoveredInterfaces = useRosInterfaces();
+  const autoInterfaces = autoInterfacesData || discoveredInterfaces;
+  const [actionInputs, setActionInputs] = useState({});
+  const [actionStatus, setActionStatus] = useState({});
+  const [actionBusy, setActionBusy] = useState({});
+  const [serviceInputs, setServiceInputs] = useState({});
+  const [serviceStatus, setServiceStatus] = useState({});
+  const [serviceBusy, setServiceBusy] = useState({});
+  const [topicInputs, setTopicInputs] = useState({});
+  const [topicStatus, setTopicStatus] = useState({});
+  const [topicBusy, setTopicBusy] = useState({});
+
+  useEffect(() => {
+    if (!autoInterfaces?.actions?.length) return;
+
+    setActionInputs(prev => {
+      const next = { ...prev };
+      let changed = false;
+      autoInterfaces.actions.forEach(action => {
+        if (!next[action.name]) {
+          next[action.name] = createActionDraft(action);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [autoInterfaces]);
+
+  useEffect(() => {
+    if (!autoInterfaces?.services?.length) return;
+
+    setServiceInputs(prev => {
+      const next = { ...prev };
+      let changed = false;
+      autoInterfaces.services.forEach(service => {
+        if (!next[service.name]) {
+          next[service.name] = createServiceDraft(service);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [autoInterfaces]);
+
+  useEffect(() => {
+    if (!autoInterfaces?.topics?.length) return;
+
+    setTopicInputs(prev => {
+      const next = { ...prev };
+      let changed = false;
+      autoInterfaces.topics.forEach(topic => {
+        if (!next[topic.name]) {
+          next[topic.name] = createTopicDraft(topic);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [autoInterfaces]);
+
+  const updateActionInput = (actionName, field, value) => {
+    setActionInputs(prev => ({
+      ...prev,
+      [actionName]: {
+        ...(prev[actionName] || {}),
+        [field]: value
+      }
+    }));
+  };
+
+  const updateServiceInput = (serviceName, field, value) => {
+    setServiceInputs(prev => ({
+      ...prev,
+      [serviceName]: {
+        ...(prev[serviceName] || {}),
+        [field]: value
+      }
+    }));
+  };
+
+  const updateTopicInput = (topicName, field, value) => {
+    setTopicInputs(prev => ({
+      ...prev,
+      [topicName]: {
+        ...(prev[topicName] || {}),
+        [field]: value
+      }
+    }));
+  };
+
+  const handleSendAction = async (action) => {
+    const draft = actionInputs[action.name] || createActionDraft(action);
+    const actionType = getActionType(action);
+    setActionStatus(prev => ({ ...prev, [action.name]: { tone: 'muted', text: 'Launching...' } }));
+    setActionBusy(prev => ({ ...prev, [action.name]: true }));
+
+    try {
+      const payload = {
+        action_name: action.name,
+        action_type: actionType,
+        feedback: draft.feedback
+      };
+
+      if (isFollowJointTrajectoryAction(action)) {
+        const jointNames = parseCsvList(draft.jointNames);
+        const positions = parseNumberCsvList(draft.positions);
+        if (jointNames.length === 0) {
+          throw new Error("Enter at least one joint name");
+        }
+        if (positions.length !== jointNames.length) {
+          throw new Error("Joint names and positions must have the same count");
+        }
+        validateJointRanges(jointNames, positions);
+
+        payload.joint_names = jointNames;
+        payload.positions = positions;
+        payload.time_from_start_sec = Number(draft.timeFromStartSec || 0);
+      } else {
+        payload.goal_yaml = draft.goalYaml;
+      }
+
+      const result = await sendActionGoal(payload);
+      setActionStatus(prev => ({
+        ...prev,
+        [action.name]: {
+          tone: 'success',
+          text: `Started PID ${result.pid}`
+        }
+      }));
+    } catch (error) {
+      setActionStatus(prev => ({
+        ...prev,
+        [action.name]: {
+          tone: 'error',
+          text: error.message
+        }
+      }));
+    } finally {
+      setActionBusy(prev => ({ ...prev, [action.name]: false }));
+    }
+  };
+
+  const handleCallService = async (service) => {
+    const draft = serviceInputs[service.name] || createServiceDraft(service);
+    setServiceStatus(prev => ({ ...prev, [service.name]: { tone: 'muted', text: 'Calling...' } }));
+    setServiceBusy(prev => ({ ...prev, [service.name]: true }));
+
+    try {
+      const payload = {
+        service_name: service.name,
+        service_type: service.type
+      };
+
+      if (service.ui_hint === 'toggle') {
+        payload.bool_value = draft.boolValue;
+      } else {
+        payload.request_yaml = draft.requestYaml;
+      }
+
+      const result = await sendServiceCall(payload);
+      setServiceStatus(prev => ({
+        ...prev,
+        [service.name]: {
+          tone: 'success',
+          text: `Started PID ${result.pid}`
+        }
+      }));
+    } catch (error) {
+      setServiceStatus(prev => ({
+        ...prev,
+        [service.name]: {
+          tone: 'error',
+          text: error.message
+        }
+      }));
+    } finally {
+      setServiceBusy(prev => ({ ...prev, [service.name]: false }));
+    }
+  };
+
+  const handlePublishTopic = async (topic) => {
+    const draft = topicInputs[topic.name] || createTopicDraft(topic);
+    setTopicStatus(prev => ({ ...prev, [topic.name]: { tone: 'muted', text: 'Publishing...' } }));
+    setTopicBusy(prev => ({ ...prev, [topic.name]: true }));
+
+    try {
+      const payload = {
+        topic_name: topic.name,
+        topic_type: getTopicType(topic),
+        once: draft.once
+      };
+
+      if (isFloat32Topic(topic)) {
+        const value = Number(draft.floatValue);
+        if (Number.isNaN(value)) {
+          throw new Error("Enter a numeric Float32 value");
+        }
+        payload.float_value = value;
+      } else {
+        payload.message_yaml = draft.messageYaml;
+      }
+
+      const result = await sendTopicPublish(payload);
+      setTopicStatus(prev => ({
+        ...prev,
+        [topic.name]: {
+          tone: 'success',
+          text: `Started PID ${result.pid}`
+        }
+      }));
+    } catch (error) {
+      setTopicStatus(prev => ({
+        ...prev,
+        [topic.name]: {
+          tone: 'error',
+          text: error.message
+        }
+      }));
+    } finally {
+      setTopicBusy(prev => ({ ...prev, [topic.name]: false }));
+    }
+  };
   
+  const sectionBoxClass = "mb-2 flex flex-col flex-1 min-h-0";
+  const sectionListClass = "flex-1 flex flex-col gap-1 overflow-y-auto custom-scrollbar pr-1 min-h-0 overscroll-contain";
+
   return (
-    <div className="h-full flex flex-col p-3 overflow-y-auto custom-scrollbar bg-black">
-
-
+    <div className="h-full flex flex-col p-2 bg-black min-h-0 overflow-hidden">
       {/* Topics Section */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[9px] text-[#6CA4D4] uppercase tracking-[0.2em] font-bold">Topics</span>
-          <span className="text-[9px] text-[#C2C9CD]/50 font-mono">({autoInterfaces?.topics?.length || 0})</span>
-        </div>
-        <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto custom-scrollbar">
-          {autoInterfaces?.topics?.map((topic, idx) => (
-            <div key={idx} className="p-1.5 border border-[#2E5276] rounded-sm bg-[#162a3d]/30 hover:bg-[#162a3d]/60 hover:border-[#6CA4D4]/30 transition-all group">
-              <div className="text-[11px] font-mono text-[#C2C9CD] truncate group-hover:text-white" title={topic.name}>
-                {topic.name}
+      {showTopics && (
+        <div className={sectionBoxClass}>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[9px] text-[#6CA4D4] uppercase tracking-[0.2em] font-bold">Topics</span>
+            <span className="text-[9px] text-[#C2C9CD]/50 font-mono">({autoInterfaces?.topics?.length || 0})</span>
+          </div>
+          <div className={sectionListClass}>
+            {autoInterfaces?.topics?.map((topic, idx) => (
+              <div key={idx} className="p-1.5 border border-[#2E5276] rounded-sm bg-[#162a3d]/30 hover:bg-[#162a3d]/60 hover:border-[#6CA4D4]/30 transition-all">
+                <div className="text-[11px] font-mono text-[#C2C9CD] truncate" title={topic.name}>
+                  {topic.name}
+                </div>
+                <div className="text-[9px] text-[#2E5276] font-mono truncate mt-0.5">
+                  {getTopicType(topic)}
+                </div>
+                {isFloat32Topic(topic) ? (
+                  <div className="mt-1.5 flex flex-col gap-1.5">
+                    <div className="flex gap-1.5">
+                      <input
+                        value={(topicInputs[topic.name] || {}).floatValue || ''}
+                        onChange={(e) => updateTopicInput(topic.name, 'floatValue', e.target.value)}
+                        placeholder="10.0"
+                        className="flex-1 bg-black border border-[#2E5276] rounded-sm px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-[#6CA4D4]"
+                      />
+                      <button
+                        onClick={() => handlePublishTopic(topic)}
+                        disabled={!!topicBusy[topic.name]}
+                        className="bg-black hover:bg-[#6CA4D4] text-[#6CA4D4] hover:text-white px-2 py-1 rounded-sm text-[9px] border border-[#6CA4D4] hover:border-transparent transition-all uppercase font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {topicBusy[topic.name] ? 'Publishing...' : 'Publish'}
+                      </button>
+                    </div>
+                    <label className="flex items-center gap-2 text-[9px] text-[#C2C9CD] font-mono uppercase tracking-wide">
+                      <input
+                        type="checkbox"
+                        checked={(topicInputs[topic.name] || {}).once ?? true}
+                        onChange={(e) => updateTopicInput(topic.name, 'once', e.target.checked)}
+                        className="accent-[#6CA4D4]"
+                      />
+                      Publish Once
+                    </label>
+                    <div className="text-[9px] text-[#C2C9CD]/60 font-mono">
+                      Example: `/hoist/target_velocity` with `10.0` sends `data: 10.0`
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-1.5 flex flex-col gap-1.5">
+                    <textarea
+                      value={(topicInputs[topic.name] || {}).messageYaml || ''}
+                      onChange={(e) => updateTopicInput(topic.name, 'messageYaml', e.target.value)}
+                      placeholder={'Message YAML\nfield: value'}
+                      rows={4}
+                      className="w-full bg-black border border-[#2E5276] rounded-sm px-1.5 py-1 text-[10px] text-white font-mono resize-y focus:outline-none focus:border-[#6CA4D4]"
+                    />
+                    <div className="flex items-center justify-between gap-1.5">
+                      <label className="flex items-center gap-2 text-[9px] text-[#C2C9CD] font-mono uppercase tracking-wide">
+                        <input
+                          type="checkbox"
+                          checked={(topicInputs[topic.name] || {}).once ?? true}
+                          onChange={(e) => updateTopicInput(topic.name, 'once', e.target.checked)}
+                          className="accent-[#6CA4D4]"
+                        />
+                        Publish Once
+                      </label>
+                      <button
+                        onClick={() => handlePublishTopic(topic)}
+                        disabled={!!topicBusy[topic.name]}
+                        className="bg-black hover:bg-[#6CA4D4] text-[#6CA4D4] hover:text-white px-2 py-1 rounded-sm text-[9px] border border-[#6CA4D4] hover:border-transparent transition-all uppercase font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {topicBusy[topic.name] ? 'Publishing...' : 'Publish'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {topicStatus[topic.name]?.text && (
+                  <div className={`mt-1.5 text-[9px] font-mono ${
+                    topicStatus[topic.name].tone === 'success'
+                      ? 'text-[#A4B43C]'
+                      : topicStatus[topic.name].tone === 'error'
+                        ? 'text-[#DC7C44]'
+                        : 'text-[#C2C9CD]/60'
+                  }`}>
+                    {topicStatus[topic.name].text}
+                  </div>
+                )}
               </div>
-              <div className="text-[9px] text-[#2E5276] font-mono truncate mt-0.5">
-                {Array.isArray(topic.types) ? topic.types.join(', ') : topic.types}
-              </div>
-            </div>
-          ))}
-          {(!autoInterfaces?.topics || autoInterfaces.topics.length === 0) && (
-            <div className="text-center text-[10px] text-[#C2C9CD]/30 py-2 italic">No topics found</div>
-          )}
+            ))}
+            {(!autoInterfaces?.topics || autoInterfaces.topics.length === 0) && (
+              <div className="text-center text-[10px] text-[#C2C9CD]/30 py-2 italic">No topics found</div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Actions Section */}
-      {autoInterfaces?.actions && autoInterfaces.actions.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-2">
+      {showActions && (
+        <div className={sectionBoxClass}>
+          <div className="flex items-center justify-between mb-1.5">
             <span className="text-[9px] text-[#6CA4D4] uppercase tracking-[0.2em] font-bold">Actions</span>
-            <span className="text-[9px] text-[#C2C9CD]/50 font-mono">({autoInterfaces.actions.length})</span>
+            <span className="text-[9px] text-[#C2C9CD]/50 font-mono">({autoInterfaces?.actions?.length || 0})</span>
           </div>
-          <div className="flex flex-col gap-1.5">
-            {autoInterfaces.actions.map((action, idx) => (
-              <div key={idx} className="p-1.5 border border-[#2E5276] rounded-sm bg-[#162a3d]/30 hover:bg-[#162a3d]/60 hover:border-[#6CA4D4]/30 transition-all group">
-                <div className="text-[11px] font-mono text-[#C2C9CD] truncate group-hover:text-white" title={action.name}>
+          <div className={sectionListClass}>
+            {autoInterfaces?.actions?.map((action, idx) => (
+              <div key={idx} className="p-1.5 border border-[#2E5276] rounded-sm bg-[#162a3d]/30 hover:bg-[#162a3d]/60 hover:border-[#6CA4D4]/30 transition-all">
+                <div className="text-[11px] font-mono text-[#C2C9CD] truncate" title={action.name}>
                   {action.name}
                 </div>
                 <div className="text-[9px] text-[#2E5276] font-mono truncate mt-0.5">
-                  {Array.isArray(action.types) ? action.types.join(', ') : action.types}
+                  {getActionType(action)}
                 </div>
+                {isFollowJointTrajectoryAction(action) ? (
+                  <div className="mt-1.5 flex flex-col gap-1.5">
+                    <input
+                      value={(actionInputs[action.name] || {}).positions || ''}
+                      onChange={(e) => updateActionInput(action.name, 'positions', e.target.value)}
+                      placeholder="Positions: 90.0, 0.1, 0.1"
+                      className="w-full bg-black border border-[#2E5276] rounded-sm px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-[#6CA4D4]"
+                    />
+                    <input
+                      value={(actionInputs[action.name] || {}).jointNames || ''}
+                      onChange={(e) => updateActionInput(action.name, 'jointNames', e.target.value)}
+                      placeholder="Joint names: slewing_joint, trolley_joint, hook_joint"
+                      className="w-full bg-black border border-[#2E5276] rounded-sm px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-[#6CA4D4]"
+                    />
+                    <div className="flex gap-1.5">
+                      <input
+                        value={(actionInputs[action.name] || {}).timeFromStartSec || '2'}
+                        onChange={(e) => updateActionInput(action.name, 'timeFromStartSec', e.target.value)}
+                        placeholder="2"
+                        className="flex-1 bg-black border border-[#2E5276] rounded-sm px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-[#6CA4D4]"
+                      />
+                      <button
+                        onClick={() => handleSendAction(action)}
+                        disabled={!!actionBusy[action.name]}
+                        className="bg-black hover:bg-[#6CA4D4] text-[#6CA4D4] hover:text-white px-2 py-1 rounded-sm text-[9px] border border-[#6CA4D4] hover:border-transparent transition-all uppercase font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {actionBusy[action.name] ? 'Sending...' : 'Send Goal'}
+                      </button>
+                    </div>
+                    <label className="flex items-center gap-2 text-[9px] text-[#C2C9CD] font-mono uppercase tracking-wide">
+                      <input
+                        type="checkbox"
+                        checked={(actionInputs[action.name] || {}).feedback ?? true}
+                        onChange={(e) => updateActionInput(action.name, 'feedback', e.target.checked)}
+                        className="accent-[#6CA4D4]"
+                      />
+                      Stream Feedback
+                    </label>
+                    <div className="text-[9px] text-[#C2C9CD]/60 font-mono">
+                      Ranges: `slewing_joint -1.57..1.57`, `trolley_joint -1..1`, `hook_joint -2..2`
+                    </div>
+                    <div className="text-[9px] text-[#C2C9CD]/60 font-mono">
+                      Example input `1.2, 0.1, 0.1` launches a `FollowJointTrajectory` goal for this action.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-1.5 flex flex-col gap-1.5">
+                    <textarea
+                      value={(actionInputs[action.name] || {}).goalYaml || ''}
+                      onChange={(e) => updateActionInput(action.name, 'goalYaml', e.target.value)}
+                      placeholder={'Goal YAML\nfield: value'}
+                      rows={5}
+                      className="w-full bg-black border border-[#2E5276] rounded-sm px-1.5 py-1 text-[10px] text-white font-mono resize-y focus:outline-none focus:border-[#6CA4D4]"
+                    />
+                    <div className="flex items-center justify-between gap-1.5">
+                      <label className="flex items-center gap-2 text-[9px] text-[#C2C9CD] font-mono uppercase tracking-wide">
+                        <input
+                          type="checkbox"
+                          checked={(actionInputs[action.name] || {}).feedback ?? true}
+                          onChange={(e) => updateActionInput(action.name, 'feedback', e.target.checked)}
+                          className="accent-[#6CA4D4]"
+                        />
+                        Stream Feedback
+                      </label>
+                      <button
+                        onClick={() => handleSendAction(action)}
+                        disabled={!!actionBusy[action.name]}
+                        className="bg-black hover:bg-[#6CA4D4] text-[#6CA4D4] hover:text-white px-2 py-1 rounded-sm text-[9px] border border-[#6CA4D4] hover:border-transparent transition-all uppercase font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {actionBusy[action.name] ? 'Sending...' : 'Send Goal'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {actionStatus[action.name]?.text && (
+                  <div className={`mt-1.5 text-[9px] font-mono ${
+                    actionStatus[action.name].tone === 'success'
+                      ? 'text-[#A4B43C]'
+                      : actionStatus[action.name].tone === 'error'
+                        ? 'text-[#DC7C44]'
+                        : 'text-[#C2C9CD]/60'
+                  }`}>
+                    {actionStatus[action.name].text}
+                  </div>
+                )}
               </div>
             ))}
+            {(!autoInterfaces?.actions || autoInterfaces.actions.length === 0) && (
+              <div className="text-center text-[10px] text-[#C2C9CD]/30 py-2 italic">No actions found</div>
+            )}
           </div>
         </div>
       )}
 
       {/* Services Section */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[9px] text-[#6CA4D4] uppercase tracking-[0.2em] font-bold">Services</span>
-          <span className="text-[9px] text-[#C2C9CD]/50 font-mono">({autoInterfaces?.services?.length || 0})</span>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          {autoInterfaces?.services?.map((iface, idx) => (
-            <div key={idx} className="p-1.5 border border-[#2E5276] rounded-sm bg-[#162a3d]/30 flex justify-between items-center hover:bg-[#162a3d]/60 hover:border-[#6CA4D4]/30 transition-all group">
-              <div className="flex-1 min-w-0">
-                <div className="text-[11px] font-mono text-[#C2C9CD] truncate group-hover:text-white" title={iface.name}>
-                  {iface.name}
+      {showServices && (
+        <div className={sectionBoxClass}>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[9px] text-[#6CA4D4] uppercase tracking-[0.2em] font-bold">Services</span>
+            <span className="text-[9px] text-[#C2C9CD]/50 font-mono">({autoInterfaces?.services?.length || 0})</span>
+          </div>
+          <div className={sectionListClass}>
+            {autoInterfaces?.services?.map((iface, idx) => (
+              <div key={idx} className="p-1.5 border border-[#2E5276] rounded-sm bg-[#162a3d]/30 hover:bg-[#162a3d]/60 hover:border-[#6CA4D4]/30 transition-all">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] font-mono text-[#C2C9CD] truncate" title={iface.name}>
+                    {iface.name}
+                  </div>
+                  <div className="text-[9px] text-[#2E5276] font-mono truncate mt-0.5">{iface.type}</div>
                 </div>
-                <div className="text-[9px] text-[#2E5276] font-mono truncate mt-0.5">{iface.type}</div>
+                {iface.ui_hint === 'toggle' ? (
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <select
+                      value={(serviceInputs[iface.name] || {}).boolValue ? 'true' : 'false'}
+                      onChange={(e) => updateServiceInput(iface.name, 'boolValue', e.target.value === 'true')}
+                      className="bg-black border border-[#2E5276] rounded-sm px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-[#6CA4D4]"
+                    >
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                    <button
+                      onClick={() => handleCallService(iface)}
+                      disabled={!!serviceBusy[iface.name]}
+                      className="bg-black hover:bg-[#A4B43C] text-[#A4B43C] hover:text-white px-2 py-1 rounded-sm text-[9px] border border-[#A4B43C] hover:border-transparent transition-all uppercase font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {serviceBusy[iface.name] ? 'Calling...' : 'Call'}
+                    </button>
+                  </div>
+                ) : iface.ui_hint === 'button' ? (
+                  <div className="mt-1.5 flex justify-end">
+                    <button
+                      onClick={() => handleCallService(iface)}
+                      disabled={!!serviceBusy[iface.name]}
+                      className="bg-black hover:bg-[#6CA4D4] text-[#6CA4D4] hover:text-white px-2 py-1 rounded-sm text-[9px] border border-[#6CA4D4] hover:border-transparent transition-all uppercase font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {serviceBusy[iface.name] ? 'Calling...' : 'Call'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-1.5 flex flex-col gap-1.5">
+                    <textarea
+                      value={(serviceInputs[iface.name] || {}).requestYaml || ''}
+                      onChange={(e) => updateServiceInput(iface.name, 'requestYaml', e.target.value)}
+                      placeholder={'Request YAML\nfield: value'}
+                      rows={4}
+                      className="w-full bg-black border border-[#2E5276] rounded-sm px-1.5 py-1 text-[10px] text-white font-mono resize-y focus:outline-none focus:border-[#6CA4D4]"
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => handleCallService(iface)}
+                        disabled={!!serviceBusy[iface.name]}
+                        className="bg-black hover:bg-[#6CA4D4] text-[#6CA4D4] hover:text-white px-2 py-1 rounded-sm text-[9px] border border-[#6CA4D4] hover:border-transparent transition-all uppercase font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {serviceBusy[iface.name] ? 'Calling...' : 'Call'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {iface.ui_hint === 'toggle' && (
+                  <div className="mt-1.5 text-[9px] text-[#C2C9CD]/60 font-mono">
+                    Sends `data: true` or `data: false`
+                  </div>
+                )}
+                {serviceStatus[iface.name]?.text && (
+                  <div className={`mt-1.5 text-[9px] font-mono ${
+                    serviceStatus[iface.name].tone === 'success'
+                      ? 'text-[#A4B43C]'
+                      : serviceStatus[iface.name].tone === 'error'
+                        ? 'text-[#DC7C44]'
+                        : 'text-[#C2C9CD]/60'
+                  }`}>
+                    {serviceStatus[iface.name].text}
+                  </div>
+                )}
               </div>
-              {iface.ui_hint === 'toggle' ? (
-                <button className="bg-black hover:bg-[#A4B43C] text-[#A4B43C] hover:text-white px-2 py-0.5 rounded-sm text-[9px] min-w-[50px] border border-[#A4B43C] hover:border-transparent transition-all uppercase font-bold ml-2">Switch</button>
-              ) : iface.ui_hint === 'button' ? (
-                <button className="bg-black hover:bg-[#6CA4D4] text-[#6CA4D4] hover:text-white px-2 py-0.5 rounded-sm text-[9px] min-w-[50px] border border-[#6CA4D4] hover:border-transparent transition-all uppercase font-bold ml-2">Call</button>
-              ) : (
-                <span className="text-[9px] text-[#C2C9CD]/30 px-2 font-mono ml-2">FORM</span>
-              )}
-            </div>
-          ))}
-          {(!autoInterfaces?.services || autoInterfaces.services.length === 0) && (
-            <div className="text-center text-[10px] text-[#C2C9CD]/30 py-4 italic">No services found in ROS2 network</div>
-          )}
+            ))}
+            {(!autoInterfaces?.services || autoInterfaces.services.length === 0) && (
+              <div className="text-center text-[10px] text-[#C2C9CD]/30 py-2 italic">No services found in ROS2 network</div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
@@ -1015,7 +1572,7 @@ export default function Dashboard() {
       </header>
 
       {/* Main Grid Content */}
-      <main className="flex-1 p-2 flex flex-col gap-1">
+      <main className="flex-1 p-2 flex flex-col gap-1 min-h-0 overflow-hidden">
         
         {activeTab === 'dashboard' && (
           <>
@@ -1119,15 +1676,28 @@ export default function Dashboard() {
         )}
 
         {activeTab === 'network' && (
-          <div className="h-full flex flex-col gap-2">
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full">
-               <Card title="ROS2 Interfaces (Auto-Discovery)" icon={Network} className="h-full">
-                  <RosInterfacePanel />
+          <div className="h-full flex flex-col gap-2 min-h-0">
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 h-full min-h-0">
+               <Card title="Actions" icon={Zap} className="h-full min-h-0">
+                  <RosInterfacePanel
+                    autoInterfacesData={autoInterfaces}
+                    showServices={false}
+                    showTopics={false}
+                  />
                </Card>
-               <Card title="Network Topology" icon={Activity} className="h-full">
-                  <div className="h-full flex items-center justify-center bg-[#162a3d]/50">
-                    <span className="text-[#C2C9CD]/50 font-mono text-[11px]">Graph Visualization Placeholder</span>
-                  </div>
+               <Card title="Services" icon={Settings} className="h-full min-h-0">
+                  <RosInterfacePanel
+                    autoInterfacesData={autoInterfaces}
+                    showActions={false}
+                    showTopics={false}
+                  />
+               </Card>
+               <Card title="Topics" icon={Activity} className="h-full min-h-0">
+                  <RosInterfacePanel
+                    autoInterfacesData={autoInterfaces}
+                    showActions={false}
+                    showServices={false}
+                  />
                </Card>
              </div>
           </div>
