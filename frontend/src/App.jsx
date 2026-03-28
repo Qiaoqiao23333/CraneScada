@@ -1126,7 +1126,7 @@ const RosInterfacePanel = ({
     }
   };
   
-  const sectionBoxClass = "mb-2 flex flex-col flex-1 min-h-0";
+  const sectionBoxClass = "mb-0 flex flex-col flex-1 min-h-0";
   const sectionListClass = "flex-1 flex flex-col gap-1 overflow-y-auto custom-scrollbar pr-1 min-h-0 overscroll-contain";
 
   return (
@@ -1509,7 +1509,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="bg-black min-h-screen w-full text-[#C2C9CD] font-sans selection:bg-[#6CA4D4]/30 flex flex-col" style={{ backgroundImage: 'radial-gradient(circle at 50% 50%, #162a3d 0%, #000000 100%)' }}>
+    <div className="bg-black h-screen overflow-hidden w-full text-[#C2C9CD] font-sans selection:bg-[#6CA4D4]/30 flex flex-col" style={{ backgroundImage: 'radial-gradient(circle at 50% 50%, #162a3d 0%, #000000 100%)' }}>
        <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #000; }
@@ -1676,30 +1676,28 @@ export default function Dashboard() {
         )}
 
         {activeTab === 'network' && (
-          <div className="h-full flex flex-col gap-2 min-h-0">
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 h-full min-h-0">
-               <Card title="Actions" icon={Zap} className="h-full min-h-0">
-                  <RosInterfacePanel
-                    autoInterfacesData={autoInterfaces}
-                    showServices={false}
-                    showTopics={false}
-                  />
-               </Card>
-               <Card title="Services" icon={Settings} className="h-full min-h-0">
-                  <RosInterfacePanel
-                    autoInterfacesData={autoInterfaces}
-                    showActions={false}
-                    showTopics={false}
-                  />
-               </Card>
-               <Card title="Topics" icon={Activity} className="h-full min-h-0">
-                  <RosInterfacePanel
-                    autoInterfacesData={autoInterfaces}
-                    showActions={false}
-                    showServices={false}
-                  />
-               </Card>
-             </div>
+          <div className="flex-1 flex flex-row gap-3 min-h-0">
+            <Card title="Actions" icon={Zap} className="flex-1 min-h-0">
+              <RosInterfacePanel
+                autoInterfacesData={autoInterfaces}
+                showServices={false}
+                showTopics={false}
+              />
+            </Card>
+            <Card title="Services" icon={Settings} className="flex-1 min-h-0">
+              <RosInterfacePanel
+                autoInterfacesData={autoInterfaces}
+                showActions={false}
+                showTopics={false}
+              />
+            </Card>
+            <Card title="Topics" icon={Activity} className="flex-1 min-h-0">
+              <RosInterfacePanel
+                autoInterfacesData={autoInterfaces}
+                showActions={false}
+                showServices={false}
+              />
+            </Card>
           </div>
         )}
 
